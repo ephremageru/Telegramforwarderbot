@@ -1,5 +1,3 @@
-```
-```
 # 👑 13-Bot Empire: Watchdog & Universal Forwarder
 
 ![Python Version](https://img.shields.io/badge/Python-3.8%2B-blue.svg)
@@ -7,9 +5,9 @@
 ![AsyncIO](https://img.shields.io/badge/Concurrency-AsyncIO-success.svg)
 ![License](https://img.shields.io/badge/License-MIT-green.svg)
 
-Welcome to the **13-Bot Empire** repository! This project contains a production-grade Telegram automation platform designed for massive channel management, media scraping, and seamless content forwarding. 
+Welcome to the **13-Bot Empire** repository! This project contains a production-grade Telegram automation platform designed for massive channel management, media scraping, and seamless content forwarding across distributed bot instances.
 
-Built with enterprise scalability in mind, this architecture handles everything from dynamic state management and API rate-limit mitigation to real-time server observability across a fleet of up to 13 managed Python processes.
+Built with enterprise scalability in mind, this architecture handles everything from dynamic state management and API rate-limit mitigation to real-time server observability across a fleet of up to 13 independent Telegram bots.
 
 ---
 
@@ -29,7 +27,7 @@ Built with enterprise scalability in mind, this architecture handles everything 
 
 ## 🏗️ System Architecture
 
-The project is divided into an orchestration layer (Watchdog) and an execution layer (Forwarders). This separation of concerns ensures that the dashboard remains responsive even while bots process gigabytes of media.
+The project is divided into an orchestration layer (Watchdog) and an execution layer (Forwarders). This separation of concerns ensures that the dashboard remains responsive even while bots process high-volume message streams.
 
 ```text
 [ Admin User ]
@@ -105,8 +103,8 @@ Asynchronous forwarding engine for all Telegram content types.
 
 **Step 1: Clone Repository**
 ```bash
-git clone [https://github.com/YourUsername/13-Bot-Empire.git](https://github.com/YourUsername/13-Bot-Empire.git)
-cd 13-Bot-Empire
+git clone https://github.com/ephremageru/Telegramforwarderbot.git
+cd Telegramforwarderbot
 ```
 
 **Step 2: Create Virtual Environment**
@@ -205,4 +203,3 @@ __pycache__/
 MIT License
 
 *Built with architecture in mind. Designed for the 13-Bot Empire.*
-```
