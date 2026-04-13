@@ -2,158 +2,134 @@ import os
 import json
 import asyncio
 import re
+import logging
 from telethon import TelegramClient, events
 from telethon.errors import FloodWaitError
 
-# ==========================================
-# 1. CONFIGURATION
-# ==========================================
-# 🛑 SECRETS SCRUBBED FOR GITHUB 🛑
-# Replace these with your actual details when running locally.
-API_ID = 12345678 # REPLACE WITH YOUR API ID
-API_HASH = 'YOUR_API_HASH_HERE' # REPLACE WITH YOUR API HASH
+# Setup basic logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
+logger = logging.getLogger(__name__)
 
-# Files for sources and saving progress
-SOURCES_FILE = "forwarder_sources.txt"  
+# Config
+API_ID = 12345678  # Replace
+API_HASH = 'YOUR_API_HASH_HERE'  # Replace
+DESTINATION_CHANNEL = -1000000000000  # Replace
+
+SOURCES_FILE = "forwarder_sources.txt"
 PROGRESS_FILE = "forwarder_progress.json"
-DESTINATION_CHANNEL = -1000000000000 # REPLACE WITH YOUR DESTINATION CHANNEL ID
+WATERMARK = "@joab_movies"
 
-# ==========================================
-# 2. HELPER FUNCTIONS (Sources & Progress)
-# ==========================================
-def load_sources():
-    sources = []
-    # Adding your original hardcoded source so you don't lose it
-    sources.append(-1000000000000) # REPLACE WITH YOUR HARDCODED SOURCE ID
+client = TelegramClient('userbot_session', API_ID, API_HASH)
+
+def get_source_channels():
+    sources = [-1000000000000] # Hardcoded fallback
     
     if os.path.exists(SOURCES_FILE):
         with open(SOURCES_FILE, "r") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
+            for line in f.read().splitlines():
+                if not line: continue
+                
                 try:
                     sources.append(int(line))
                 except ValueError:
                     sources.append(line)
+                    
     return list(set(sources))
 
-SOURCE_CHANNELS = load_sources()
-
-def load_progress():
-    """Loads the saved message IDs so the bot remembers where it left off."""
+def load_state():
     if os.path.exists(PROGRESS_FILE):
         with open(PROGRESS_FILE, "r") as f:
             return json.load(f)
     return {}
 
-def save_progress(progress_dict):
-    """Saves the current progress to a file."""
+def save_state(state):
     with open(PROGRESS_FILE, "w") as f:
-        json.dump(progress_dict, f)
+        json.dump(state, f)
 
-# ==========================================
-# 3. INITIALIZE CLIENT
-# ==========================================
-client = TelegramClient('userbot_session', API_ID, API_HASH)
+def format_caption(text):
+    if not text:
+        return f"\n\n{WATERMARK}"
+        
+    text = re.sub(r'@[A-Za-z0-9_]+', '', text)
+    text = re.sub(r'(https?://\S+|www\.\S+|t\.me/\S+)', '', text).strip()
+    return f"{text}\n\n{WATERMARK}"
 
-# ==========================================
-# 4. 24/7 LISTENER LOGIC (For brand new posts)
-# ==========================================
+SOURCE_CHANNELS = get_source_channels()
+
 @client.on(events.NewMessage(chats=SOURCE_CHANNELS))
-async def handler(event):
-    if event.message.media: 
-        try:
-            original_text = event.message.text or ""
+async def live_forward_handler(event):
+    if not event.message.media:
+        return
+        
+    try:
+        new_caption = format_caption(event.message.text)
+        await client.send_message(DESTINATION_CHANNEL, file=event.message.media, message=new_caption)
+        logger.info(f"Forwarded live media from {event.chat_id} (Msg ID: {event.message.id})")
+        
+        # Update high-water mark
+        state = load_state()
+        chat_id = str(event.chat_id)
+        if event.message.id > state.get(chat_id, 0):
+            state[chat_id] = event.message.id
+            save_state(state)
             
-            # --- Link & Username Removal ---
-            clean_text = re.sub(r'@[A-Za-z0-9_]+', '', original_text)
-            clean_text = re.sub(r'(https?://\S+|www\.\S+|t\.me/\S+)', '', clean_text).strip()
-            new_text = f"{clean_text}\n\n@joab_movies"
+    except Exception as e:
+        logger.error(f"Failed to forward live message: {e}")
 
-            await client.send_message(DESTINATION_CHANNEL, file=event.message.media, text=new_text)
-            print(f"✅ Live Update: New movie successfully forwarded!")
-            
-            # Save progress so we don't copy this again on restart
-            progress = load_progress()
-            chat_id = str(event.chat_id)
-            if event.message.id > progress.get(chat_id, 0):
-                progress[chat_id] = event.message.id
-                save_progress(progress)
-            
-        except Exception as e:
-            print(f"❌ Error copying live message: {e}")
+async def sync_history():
+    state = load_state()
+    total_synced = 0
 
-# ==========================================
-# 5. STARTUP SEQUENCE
-# ==========================================
-async def main():
-    await client.start()
-    print("🚀 Forwarder Bot Started!")
-    print(f"📡 Actively monitoring {len(SOURCE_CHANNELS)} source(s).")
-
-    # Load our saved memory
-    progress = load_progress()
-
-    # --- STEP 1: RESUME BULK COPY ---
-    print("⏳ Checking for missed movies since last run. (15 sec delay per message)...")
-    total_messages_copied = 0
+    logger.info(f"Starting historical sync for {len(SOURCE_CHANNELS)} sources...")
 
     for source in SOURCE_CHANNELS:
         try:
-            # We fetch the exact numeric ID of the source channel so our memory file is accurate
             entity = await client.get_entity(source)
             source_id = str(entity.id)
+            last_id = state.get(source_id, 0)
             
-            # Find out where we left off (default to 0 if this is the first time)
-            last_copied_id = progress.get(source_id, 0)
-            
-            if last_copied_id == 0:
-                print(f"\n🔄 Connecting to {source} (Starting from the VERY BEGINNING)")
-            else:
-                print(f"\n🔄 Connecting to {source} (Resuming from message ID: {last_copied_id})")
+            logger.info(f"Syncing source {source_id} starting from msg_id {last_id}")
 
-            # min_id ensures we ONLY fetch messages newer than our last saved position
-            async for message in client.iter_messages(entity, min_id=last_copied_id, reverse=True):
-                if message.media:
-                    try:
-                        original_text = message.text or ""
-                        
-                        # --- Link & Username Removal ---
-                        clean_text = re.sub(r'@[A-Za-z0-9_]+', '', original_text)
-                        clean_text = re.sub(r'(https?://\S+|www\.\S+|t\.me/\S+)', '', clean_text).strip()
-                        new_text = f"{clean_text}\n\n@joab_movies"
+            async for message in client.iter_messages(entity, min_id=last_id, reverse=True):
+                if not message.media:
+                    continue
+                    
+                try:
+                    new_caption = format_caption(message.text)
+                    await client.send_message(DESTINATION_CHANNEL, file=message.media, message=new_caption)
+                    total_synced += 1
+                    
+                    state[source_id] = message.id
+                    save_state(state)
+                    
+                    # Rate limit pacing
+                    await asyncio.sleep(15)
 
-                        await client.send_message(DESTINATION_CHANNEL, file=message.media, text=new_text)
-                        total_messages_copied += 1
-                        print(f"✅ Copied past message {total_messages_copied} (ID: {message.id})")
-
-                        # Save our exact spot after a successful copy
-                        progress[source_id] = message.id
-                        save_progress(progress)
-
-                        # Crucial 15-second delay to prevent rate limits
-                        await asyncio.sleep(15)
-
-                    except FloodWaitError as e:
-                        print(f"⚠️ Telegram rate limit hit. Pausing for {e.seconds} seconds...")
-                        await asyncio.sleep(e.seconds)
-                    except Exception as e:
-                        print(f"❌ Error copying past message {message.id}: {e}")
-                        await asyncio.sleep(5)
-                        
+                except FloodWaitError as e:
+                    logger.warning(f"Rate limit hit. Sleeping for {e.seconds}s")
+                    await asyncio.sleep(e.seconds)
+                except Exception as e:
+                    logger.error(f"Error processing historical msg {message.id}: {e}")
+                    await asyncio.sleep(5)
+                    
         except Exception as e:
-            print(f"❌ Could not process source {source}. Error: {e}")
+            logger.error(f"Failed to access source {source}: {e}")
 
-    print(f"\n🎉 Sync complete! Total historical messages caught up on: {total_messages_copied}")
+    logger.info(f"Historical sync complete. Total media forwarded: {total_synced}")
 
-    # --- STEP 2: RUN 24/7 LISTENER ---
-    print("✨ Now switching to Live Standby. Waiting for new messages 24/7...")
+async def main():
+    await client.start()
+    logger.info("Client authenticated and running.")
+    
+    await sync_history()
+    
+    logger.info("Switching to live event listener mode.")
     await client.run_until_disconnected()
 
-# ==========================================
-# 6. RUN THE SCRIPT
-# ==========================================
 if __name__ == "__main__":
     with client:
         client.loop.run_until_complete(main())
