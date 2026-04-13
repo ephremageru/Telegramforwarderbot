@@ -13,7 +13,7 @@ from telethon.errors import FloodWaitError
 API_ID = 12345678 # REPLACE WITH YOUR API ID
 API_HASH = 'YOUR_API_HASH_HERE' # REPLACE WITH YOUR API HASH
 
-# Files for sources and saving progress (Renamed to "movie")
+# Files for sources and saving progress
 SOURCES_FILE = "forwarder_sources.txt"  
 PROGRESS_FILE = "forwarder_progress.json"
 DESTINATION_CHANNEL = -1000000000000 # REPLACE WITH YOUR DESTINATION CHANNEL ID
@@ -71,7 +71,7 @@ async def handler(event):
             clean_text = re.sub(r'(https?://\S+|www\.\S+|t\.me/\S+)', '', clean_text).strip()
             new_text = f"{clean_text}\n\n@joab_movies"
 
-            await client.send_message(DESTINATION_CHANNEL, file=event.message.media, message=new_text)
+            await client.send_message(DESTINATION_CHANNEL, file=event.message.media, text=new_text)
             print(f"✅ Live Update: New movie successfully forwarded!")
             
             # Save progress so we don't copy this again on restart
@@ -96,8 +96,8 @@ async def main():
     progress = load_progress()
 
     # --- STEP 1: RESUME BULK COPY ---
-    print("⏳ Checking for missed movies since last run. (15 sec delay per movie)...")
-    total_movies_copied = 0
+    print("⏳ Checking for missed movies since last run. (15 sec delay per message)...")
+    total_messages_copied = 0
 
     for source in SOURCE_CHANNELS:
         try:
@@ -124,9 +124,9 @@ async def main():
                         clean_text = re.sub(r'(https?://\S+|www\.\S+|t\.me/\S+)', '', clean_text).strip()
                         new_text = f"{clean_text}\n\n@joab_movies"
 
-                        await client.send_message(DESTINATION_CHANNEL, file=message.media, message=new_text)
-                        total_movies_copied += 1
-                        print(f"✅ Copied past movie {total_movies_copied} (ID: {message.id})")
+                        await client.send_message(DESTINATION_CHANNEL, file=message.media, text=new_text)
+                        total_messages_copied += 1
+                        print(f"✅ Copied past message {total_messages_copied} (ID: {message.id})")
 
                         # Save our exact spot after a successful copy
                         progress[source_id] = message.id
@@ -145,14 +145,15 @@ async def main():
         except Exception as e:
             print(f"❌ Could not process source {source}. Error: {e}")
 
-    print(f"\n🎉 Sync complete! Total historical movies caught up on: {total_movies_copied}")
+    print(f"\n🎉 Sync complete! Total historical messages caught up on: {total_messages_copied}")
 
     # --- STEP 2: RUN 24/7 LISTENER ---
-    print("✨ Now switching to Live Standby. Waiting for new movie drops 24/7...")
+    print("✨ Now switching to Live Standby. Waiting for new messages 24/7...")
     await client.run_until_disconnected()
 
 # ==========================================
 # 6. RUN THE SCRIPT
 # ==========================================
-with client:
-    client.loop.run_until_complete(main())
+if __name__ == "__main__":
+    with client:
+        client.loop.run_until_complete(main())
